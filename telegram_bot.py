@@ -19,28 +19,32 @@ BIAS_EMOJI = {"Bullish": "🟢", "Bearish": "🔴", "Neutral": "⚪"}
 
 
 def build_report(combined_scores: dict) -> str:
-    lines = ["*📊 Forex Fundamentals Digest*", ""]
+    # Plain text on purpose — no Markdown formatting. Headline text pulled from
+    # news feeds is unpredictable (it can contain *, _, [, ] etc.) and Telegram's
+    # Markdown parser rejects the ENTIRE message if those characters don't pair
+    # up correctly. Plain text sidesteps that failure mode entirely.
+    lines = ["\U0001F4CA Forex Fundamentals Digest", ""]
 
     # Sort strongest bias first (absolute score)
     ranked = sorted(combined_scores.items(), key=lambda kv: abs(kv[1]["score"]), reverse=True)
 
     for currency, data in ranked:
         emoji = BIAS_EMOJI.get(data["bias"], "⚪")
-        lines.append(f"{emoji} *{currency}* — {data['bias']} (score: {data['score']:+.2f})")
+        lines.append(f"{emoji} {currency} — {data['bias']} (score: {data['score']:+.2f})")
 
         for ev in data["calendar_events"][:3]:
-            arrow = "↑" if ev["beat"] else "↓"
+            arrow = "up" if ev["beat"] else "down"
             lines.append(
-                f"    {arrow} {ev['title']} ({ev['impact']}): "
+                f"    [{arrow}] {ev['title']} ({ev['impact']}): "
                 f"actual {ev['actual']} vs fcst {ev['forecast']}"
             )
 
         for headline in data["news_hits"][:2]:
-            lines.append(f"    📰 {headline}")
+            lines.append(f"    - {headline}")
 
         lines.append("")
 
-    lines.append("_Automated fundamentals summary — not financial advice._")
+    lines.append("Automated fundamentals summary — not financial advice.")
     return "\n".join(lines)
 
 
@@ -59,14 +63,15 @@ def send_report(text: str) -> bool:
                 data={
                     "chat_id": TELEGRAM_CHAT_ID,
                     "text": chunk,
-                    "parse_mode": "Markdown",
                     "disable_web_page_preview": True,
                 },
                 timeout=15,
             )
             resp.raise_for_status()
         except Exception as e:
-            logger.error("Failed to send Telegram message: %s", e)
+            body = getattr(e, "response", None)
+            detail = body.text if body is not None else ""
+            logger.error("Failed to send Telegram message: %s | Telegram said: %s", e, detail)
             return False
 
     return True
