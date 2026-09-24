@@ -40,6 +40,22 @@ IMPACT_WEIGHTS = {
 # Currencies to track and report on.
 TRACKED_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"]
 
+# Standard FX market pair conventions — (base, quote) in the order the market
+# actually quotes them. This matters: EUR/USD and USD/EUR are NOT the same
+# pair, and getting the base/quote backwards flips the correct trade
+# direction. This list intentionally does not include every possible
+# combination of TRACKED_CURRENCIES — only the pairs as the market quotes
+# them (majors here; add crosses like EUR/GBP or EUR/JPY if you want them).
+STANDARD_FX_PAIRS = [
+    ("EUR", "USD"),
+    ("GBP", "USD"),
+    ("AUD", "USD"),
+    ("NZD", "USD"),
+    ("USD", "JPY"),
+    ("USD", "CAD"),
+    ("USD", "CHF"),
+]
+
 # How many news headlines per source to pull for sentiment scoring.
 NEWS_ITEMS_PER_SOURCE = 8
 
