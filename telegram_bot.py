@@ -16,16 +16,28 @@ logger = logging.getLogger(__name__)
 API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 BIAS_EMOJI = {"Bullish": "🟢", "Bearish": "🔴", "Neutral": "⚪"}
+PAIR_BIAS_EMOJI = {"Buy": "🟢", "Sell": "🔴", "Neutral": "⚪"}
 
 
-def build_report(combined_scores: dict) -> str:
+def build_report(combined_scores: dict, pair_biases: list[dict] | None = None) -> str:
     # Plain text on purpose — no Markdown formatting. Headline text pulled from
     # news feeds is unpredictable (it can contain *, _, [, ] etc.) and Telegram's
     # Markdown parser rejects the ENTIRE message if those characters don't pair
     # up correctly. Plain text sidesteps that failure mode entirely.
     lines = ["\U0001F4CA Forex Fundamentals Digest", ""]
 
-    # Sort strongest bias first (absolute score)
+    # --- Pair bias section (derived from the currency scores below) ---
+    if pair_biases:
+        non_neutral = [p for p in pair_biases if p["bias"] != "Neutral"]
+        top_pairs = non_neutral[:6] if non_neutral else pair_biases[:3]
+
+        lines.append("Top pair signals:")
+        for p in top_pairs:
+            emoji = PAIR_BIAS_EMOJI.get(p["bias"], "⚪")
+            lines.append(f"  {emoji} {p['pair']}  {p['score']:+.2f}  {p['bias']}")
+        lines.append("")
+
+    # --- Per-currency detail ---
     ranked = sorted(combined_scores.items(), key=lambda kv: abs(kv[1]["score"]), reverse=True)
 
     for currency, data in ranked:
@@ -39,7 +51,16 @@ def build_report(combined_scores: dict) -> str:
                 f"actual {ev['actual']} vs fcst {ev['forecast']}"
             )
 
-        for headline in data["news_hits"][:2]:
+        # De-duplicate headlines so the same story doesn't repeat under
+        # every currency it happens to mention.
+        seen = set()
+        unique_hits = []
+        for headline in data["news_hits"]:
+            if headline not in seen:
+                seen.add(headline)
+                unique_hits.append(headline)
+
+        for headline in unique_hits[:2]:
             lines.append(f"    - {headline}")
 
         lines.append("")
@@ -75,4 +96,4 @@ def send_report(text: str) -> bool:
             return False
 
     return True
-    
+            
