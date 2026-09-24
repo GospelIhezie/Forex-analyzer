@@ -11,7 +11,7 @@ import logging
 import time
 
 from scraper import get_calendar_events, get_news_headlines
-from analyzer import score_calendar_bias, score_news_sentiment, combine_scores
+from analyzer import score_calendar_bias, score_news_sentiment, combine_scores, compute_pair_biases
 from telegram_bot import build_report, send_report
 from config import RUN_INTERVAL_MINUTES
 
@@ -35,8 +35,9 @@ def run_once():
     calendar_scores = score_calendar_bias(events)
     news_scores = score_news_sentiment(headlines)
     combined = combine_scores(calendar_scores, news_scores)
+    pair_biases = compute_pair_biases(combined)
 
-    report = build_report(combined)
+    report = build_report(combined, pair_biases)
     logger.info("Report:\n%s", report)
 
     logger.info("Sending report to Telegram...")
