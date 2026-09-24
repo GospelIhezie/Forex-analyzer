@@ -9,8 +9,7 @@ combine_scores(): merges both into one fundamentals verdict per currency.
 """
 
 import re
-from itertools import combinations
-from config import MIN_IMPACT, IMPACT_WEIGHTS, TRACKED_CURRENCIES
+from config import MIN_IMPACT, IMPACT_WEIGHTS, TRACKED_CURRENCIES, STANDARD_FX_PAIRS
 
 IMPACT_ORDER = {"Low": 0, "Medium": 1, "High": 2}
 
@@ -148,17 +147,26 @@ def combine_scores(calendar_scores: dict, news_scores: dict) -> dict:
 
 def compute_pair_biases(combined_scores: dict) -> list[dict]:
     """
-    Derives a Buy/Sell/Neutral bias for every currency pair from the
-    per-currency fundamental scores already computed above (pair score =
-    base currency score minus quote currency score). This is plain
-    arithmetic on real data — not a separate model — so it's only as
-    good as the underlying per-currency scores.
+    Derives a Buy/Sell/Neutral bias for each STANDARD_FX_PAIRS entry from the
+    per-currency fundamental scores already computed above.
 
-    Returns a list of {"pair": "USD/CAD", "score": float, "bias": str},
-    sorted by strength of signal (strongest first).
+    PAIR SCORE = BASE currency score - QUOTE currency score
+        > 0  -> base is fundamentally stronger -> Buy the pair
+        < 0  -> base is fundamentally weaker    -> Sell the pair
+        ~0   -> Neutral
+
+    This only uses the fixed, correctly-oriented pairs in
+    config.STANDARD_FX_PAIRS (e.g. EUR/USD, not the reverse USD/EUR) — it
+    does not invent pairs by combining every currency with every other one,
+    since that produces pairs the market doesn't actually quote that way.
+
+    Returns a list of dicts with base/quote scores, the differential, the
+    Buy/Sell/Neutral bias, and a Strong/Moderate/Weak strength label (a
+    plain bucketing of the real differential — not a fabricated confidence
+    score), sorted strongest signal first.
     """
     results = []
-    for base, quote in combinations(TRACKED_CURRENCIES, 2):
+    for base, quote in STANDARD_FX_PAIRS:
         base_score = combined_scores.get(base, {}).get("score", 0.0)
         quote_score = combined_scores.get(quote, {}).get("score", 0.0)
         diff = round(base_score - quote_score, 3)
@@ -170,8 +178,25 @@ def compute_pair_biases(combined_scores: dict) -> list[dict]:
         else:
             bias = "Neutral"
 
-        results.append({"pair": f"{base}/{quote}", "score": diff, "bias": bias})
+        abs_diff = abs(diff)
+        if abs_diff >= 1.0:
+            strength = "Strong"
+        elif abs_diff >= 0.3:
+            strength = "Moderate"
+        else:
+            strength = "Weak"
+
+        results.append({
+            "pair": f"{base}/{quote}",
+            "base": base,
+            "quote": quote,
+            "base_score": base_score,
+            "quote_score": quote_score,
+            "score": diff,
+            "bias": bias,
+            "strength": strength,
+        })
 
     results.sort(key=lambda r: abs(r["score"]), reverse=True)
     return results
-    
+        
