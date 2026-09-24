@@ -24,25 +24,42 @@ def build_report(combined_scores: dict, pair_biases: list[dict] | None = None) -
     # news feeds is unpredictable (it can contain *, _, [, ] etc.) and Telegram's
     # Markdown parser rejects the ENTIRE message if those characters don't pair
     # up correctly. Plain text sidesteps that failure mode entirely.
-    lines = ["\U0001F4CA Forex Fundamentals Digest", ""]
+    lines = ["\U0001F4CA FOREX FUNDAMENTALS DIGEST", ""]
 
-    # --- Pair bias section (derived from the currency scores below) ---
-    if pair_biases:
-        non_neutral = [p for p in pair_biases if p["bias"] != "Neutral"]
-        top_pairs = non_neutral[:6] if non_neutral else pair_biases[:3]
+    # --- Stage 1: currency strength (independent per-currency scores) ---
+    ranked = sorted(combined_scores.items(), key=lambda kv: kv[1]["score"], reverse=True)
 
-        lines.append("Top pair signals:")
-        for p in top_pairs:
-            emoji = PAIR_BIAS_EMOJI.get(p["bias"], "⚪")
-            lines.append(f"  {emoji} {p['pair']}  {p['score']:+.2f}  {p['bias']}")
-        lines.append("")
-
-    # --- Per-currency detail ---
-    ranked = sorted(combined_scores.items(), key=lambda kv: abs(kv[1]["score"]), reverse=True)
-
+    lines.append("CURRENCY FUNDAMENTAL STRENGTH")
     for currency, data in ranked:
         emoji = BIAS_EMOJI.get(data["bias"], "⚪")
-        lines.append(f"{emoji} {currency} — {data['bias']} (score: {data['score']:+.2f})")
+        lines.append(f"  {emoji} {currency}: {data['score']:+.2f} {data['bias']}")
+    lines.append("")
+
+    # --- Stage 2: FX pair signals, derived from stage 1, using correct
+    # base/quote market convention (config.STANDARD_FX_PAIRS) ---
+    if pair_biases:
+        lines.append("FX PAIR SIGNALS")
+        for p in pair_biases:
+            emoji = PAIR_BIAS_EMOJI.get(p["bias"], "⚪")
+            lines.append(f"  {emoji} {p['pair']}: {p['score']:+.2f} {p['bias']} ({p['strength']})")
+        lines.append("")
+
+        non_neutral = [p for p in pair_biases if p["bias"] != "Neutral"]
+        if non_neutral:
+            lines.append("TOP FUNDAMENTAL PAIR DIFFERENTIALS")
+            for p in non_neutral[:3]:
+                lines.append(f"  {p['pair']}")
+                lines.append(f"    {p['base']}: {p['base_score']:+.2f}")
+                lines.append(f"    {p['quote']}: {p['quote_score']:+.2f}")
+                lines.append(f"    Differential: {p['score']:+.2f}  Signal: {p['bias']}  Strength: {p['strength']}")
+            lines.append("")
+
+    # --- Supporting detail: which released events / headlines drove each score ---
+    lines.append("DETAIL")
+    for currency, data in ranked:
+        if not data["calendar_events"] and not data["news_hits"]:
+            continue
+        lines.append(f"  {currency}:")
 
         for ev in data["calendar_events"][:3]:
             arrow = "up" if ev["beat"] else "down"
@@ -63,8 +80,7 @@ def build_report(combined_scores: dict, pair_biases: list[dict] | None = None) -
         for headline in unique_hits[:2]:
             lines.append(f"    - {headline}")
 
-        lines.append("")
-
+    lines.append("")
     lines.append("Automated fundamentals summary — not financial advice.")
     return "\n".join(lines)
 
@@ -96,4 +112,4 @@ def send_report(text: str) -> bool:
             return False
 
     return True
-            
+                
