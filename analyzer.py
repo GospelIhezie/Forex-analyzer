@@ -59,6 +59,83 @@ def _to_number(value: str):
         num *= 1_000_000
     elif "B" in value.upper():
         num *= 1_000_000_000
+    return num
+
+
+def score_calendar_bias(events: list[dict]) -> dict:
+    """Returns {currency: {"score": float, "events": [event summaries]}}."""
+    result = {c: {"score": 0.0, "events": []} for c in TRACKED_CURRENCIES}
+
+    for e in events:
+        currency = e["country"]
+        if currency not in result:
+            continue
+        if not _impact_meets_threshold(e["impact"]):
+            continue
+        if not e["actual"]:
+            continue  # event hasn't been released yet
+
+        actual = _to_number(e["actual"])
+        forecast = _to_number(e["forecast"])
+        if actual is None or forecast is None or forecast == 0:
+            continue
+
+        deviation_pct = (actual - forecast) / abs(forecast)
+        weight = IMPACT_WEIGHTS.get(e["impact"], 1)
+        contribution = deviation_pct * weight
+
+        result[currency]["score"] += contribution
+        result[currency]["events"].append({
+            "title": e["title"],
+            "impact": e["impact"],
+            "actual": e["actual"],
+            "forecast": e["forecast"],
+            "previous": e["previous"],
+            "beat": actual > forecast,
+        })
+
+    return result
+
+
+def score_news_sentiment(headlines: list[dict]) -> dict:
+    """Returns {currency: {"score": float, "hits": [headline titles]}}."""
+    result = {c: {"score": 0.0, "hits": []} for c in TRACKED_CURRENCIES}
+
+    for item in headlines:
+        text = f"{item['title']} {item.get('summary', '')}".lower()
+
+        bullish_hits = sum(1 for w in BULLISH_WORDS if w in text)
+        bearish_hits = sum(1 for w in BEARISH_WORDS if w in text)
+        net = bullish_hits - bearish_hits
+        if net == 0:
+            continue
+
+        for currency, keywords in CURRENCY_KEYWORDS.items():
+            if any(k in text for k in keywords):
+                result[currency]["score"] += net
+                result[currency]["hits"].append(item["title"])
+
+    return result
+
+
+def combine_scores(calendar_scores: dict, news_scores: dict) -> dict:
+    """
+    Merges calendar and news scores into one verdict per currency:
+    {"score": float, "bias": "Bullish"|"Bearish"|"Neutral", ...details}
+    """
+    combined = {}
+    for currency in TRACKED_CURRENCIES:
+        cal = calendar_scores.get(currency, {"score": 0.0, "events": []})
+        news = news_scores.get(currency, {"score": 0.0, "hits": []})
+        total = cal["score"] + news["score"] * 0.5  # news weighted lighter than hard data
+
+        if total > 0.15:
+            bias = "Bullish"
+        elif total < -0.15:
+            bias = "Bearish"
+        else:
+            bias = "Neutral"
+
         combined[currency] = {
             "score": round(total, 3),
             "bias": bias,
