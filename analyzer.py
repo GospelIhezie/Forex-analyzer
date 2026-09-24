@@ -9,6 +9,7 @@ combine_scores(): merges both into one fundamentals verdict per currency.
 """
 
 import re
+from itertools import combinations
 from config import MIN_IMPACT, IMPACT_WEIGHTS, TRACKED_CURRENCIES
 
 IMPACT_ORDER = {"Low": 0, "Medium": 1, "High": 2}
@@ -58,83 +59,6 @@ def _to_number(value: str):
         num *= 1_000_000
     elif "B" in value.upper():
         num *= 1_000_000_000
-    return num
-
-
-def score_calendar_bias(events: list[dict]) -> dict:
-    """Returns {currency: {"score": float, "events": [event summaries]}}."""
-    result = {c: {"score": 0.0, "events": []} for c in TRACKED_CURRENCIES}
-
-    for e in events:
-        currency = e["country"]
-        if currency not in result:
-            continue
-        if not _impact_meets_threshold(e["impact"]):
-            continue
-        if not e["actual"]:
-            continue  # event hasn't been released yet
-
-        actual = _to_number(e["actual"])
-        forecast = _to_number(e["forecast"])
-        if actual is None or forecast is None or forecast == 0:
-            continue
-
-        deviation_pct = (actual - forecast) / abs(forecast)
-        weight = IMPACT_WEIGHTS.get(e["impact"], 1)
-        contribution = deviation_pct * weight
-
-        result[currency]["score"] += contribution
-        result[currency]["events"].append({
-            "title": e["title"],
-            "impact": e["impact"],
-            "actual": e["actual"],
-            "forecast": e["forecast"],
-            "previous": e["previous"],
-            "beat": actual > forecast,
-        })
-
-    return result
-
-
-def score_news_sentiment(headlines: list[dict]) -> dict:
-    """Returns {currency: {"score": float, "hits": [headline titles]}}."""
-    result = {c: {"score": 0.0, "hits": []} for c in TRACKED_CURRENCIES}
-
-    for item in headlines:
-        text = f"{item['title']} {item.get('summary', '')}".lower()
-
-        bullish_hits = sum(1 for w in BULLISH_WORDS if w in text)
-        bearish_hits = sum(1 for w in BEARISH_WORDS if w in text)
-        net = bullish_hits - bearish_hits
-        if net == 0:
-            continue
-
-        for currency, keywords in CURRENCY_KEYWORDS.items():
-            if any(k in text for k in keywords):
-                result[currency]["score"] += net
-                result[currency]["hits"].append(item["title"])
-
-    return result
-
-
-def combine_scores(calendar_scores: dict, news_scores: dict) -> dict:
-    """
-    Merges calendar and news scores into one verdict per currency:
-    {"score": float, "bias": "Bullish"|"Bearish"|"Neutral", ...details}
-    """
-    combined = {}
-    for currency in TRACKED_CURRENCIES:
-        cal = calendar_scores.get(currency, {"score": 0.0, "events": []})
-        news = news_scores.get(currency, {"score": 0.0, "hits": []})
-        total = cal["score"] + news["score"] * 0.5  # news weighted lighter than hard data
-
-        if total > 0.15:
-            bias = "Bullish"
-        elif total < -0.15:
-            bias = "Bearish"
-        else:
-            bias = "Neutral"
-
         combined[currency] = {
             "score": round(total, 3),
             "bias": bias,
@@ -143,3 +67,34 @@ def combine_scores(calendar_scores: dict, news_scores: dict) -> dict:
         }
 
     return combined
+
+
+def compute_pair_biases(combined_scores: dict) -> list[dict]:
+    """
+    Derives a Buy/Sell/Neutral bias for every currency pair from the
+    per-currency fundamental scores already computed above (pair score =
+    base currency score minus quote currency score). This is plain
+    arithmetic on real data — not a separate model — so it's only as
+    good as the underlying per-currency scores.
+
+    Returns a list of {"pair": "USD/CAD", "score": float, "bias": str},
+    sorted by strength of signal (strongest first).
+    """
+    results = []
+    for base, quote in combinations(TRACKED_CURRENCIES, 2):
+        base_score = combined_scores.get(base, {}).get("score", 0.0)
+        quote_score = combined_scores.get(quote, {}).get("score", 0.0)
+        diff = round(base_score - quote_score, 3)
+
+        if diff > 0.15:
+            bias = "Buy"
+        elif diff < -0.15:
+            bias = "Sell"
+        else:
+            bias = "Neutral"
+
+        results.append({"pair": f"{base}/{quote}", "score": diff, "bias": bias})
+
+    results.sort(key=lambda r: abs(r["score"]), reverse=True)
+    return results
+    
