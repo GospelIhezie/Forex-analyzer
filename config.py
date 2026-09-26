@@ -61,3 +61,80 @@ NEWS_ITEMS_PER_SOURCE = 8
 
 # Run interval in minutes when running in continuous/scheduled mode.
 RUN_INTERVAL_MINUTES = 60
+
+# --- Real yields (FRED) and DXY (Yahoo Finance) ---
+# FRED_API_KEY is free — request one at https://fred.stlouisfed.org/docs/api/api_key.html
+FRED_API_KEY = os.getenv("FRED_API_KEY", "")
+FRED_REAL_YIELD_SERIES = "DFII10"  # 10-Year Treasury Inflation-Indexed real yield
+YAHOO_DXY_URL = "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB"
+
+# =====================================================================
+# XAU/USD (Gold) fundamentals — see gold_fundamentals/ package.
+#
+# Honesty note: a serious gold fundamentals model wants real yields, a live
+# DXY level, ETF flow $ figures, central-bank purchase tonnage, and
+# China/India demand data. Real yields (FRED) and DXY (Yahoo Finance) ARE
+# now wired in above. The rest still have no free, reliable feed and are
+# reported as "DATA UNAVAILABLE" rather than invented.
+# =====================================================================
+
+GOLD_MIN_IMPACT = "Medium"
+
+# How much each computable category counts toward the total gold score.
+# Fed/Rates, real yields and DXY are weighted highest since they're the
+# most directly gold-relevant measurements available. USD Strength is
+# weighted a bit lower than before now that DXY (an actual live price)
+# covers similar ground from a different angle — keeping both isn't double
+# counting, but it's related information, so it's weighted accordingly.
+GOLD_CATEGORY_WEIGHTS = {
+    "fed_rates": 2.5,
+    "real_yields": 2.5,
+    "dxy": 2.0,
+    "usd_strength": 1.5,
+    "inflation": 2.0,
+    "geopolitical_risk": 2.0,
+    "employment_growth": 1.0,
+    "central_bank_demand": 1.0,
+}
+
+# Reported to the user as gaps, never filled in with invented numbers.
+GOLD_UNAVAILABLE_FACTORS = [
+    "Gold ETF flows (World Gold Council data)",
+    "Central bank gold purchase volumes",
+    "China gold demand",
+    "India gold demand",
+    "Gold price momentum/technicals",
+]
+
+GOLD_FED_KEYWORDS = ["fed", "fomc", "interest rate", "rate decision", "monetary policy"]
+GOLD_INFLATION_KEYWORDS = ["cpi", "pce", "inflation"]
+GOLD_GROWTH_KEYWORDS = [
+    "nonfarm", "non-farm", "non farm", "payroll", "employment change",
+    "unemployment", "gdp", "ism", "retail sales", "wage",
+]
+
+# Keyword lexicon for the geopolitical/risk-sentiment category. Same
+# transparent, simple-on-purpose approach as the main analyser's news
+# sentiment scoring — not a black-box model.
+GOLD_BULLISH_NEWS_WORDS = {
+    "war", "conflict", "tension", "tensions", "sanctions", "geopolitical",
+    "crisis", "safe-haven", "safe haven", "flight to safety", "escalation",
+    "escalates",
+}
+GOLD_BEARISH_NEWS_WORDS = {
+    "ceasefire", "peace deal", "de-escalation", "de-escalate", "risk-on",
+    "risk rally", "truce",
+}
+
+# Keyword lexicon for the (headline-presence-only) central bank / demand
+# category — see scoring.py docstring for why this is treated as a weak,
+# low-confidence signal rather than a quantified one.
+GOLD_DEMAND_KEYWORDS = [
+    "central bank gold", "gold reserves", "gold etf", "gold demand",
+    "buying gold", "selling gold",
+]
+
+# Local-time schedule the user asked for (08:00/12:00/16:00/20:00 WAT,
+# UTC+1) converted to UTC for the GitHub Actions cron in
+# .github/workflows/gold-bot.yml — cron always runs in UTC.
+GOLD_SCHEDULE_HOURS_UTC = [7, 11, 15, 19]
