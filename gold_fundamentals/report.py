@@ -1,4 +1,3 @@
-
 """
 gold_fundamentals/report.py
 
@@ -11,8 +10,8 @@ contains stray *, _, [, ] characters.
 from datetime import datetime, timezone
 
 CATEGORY_ORDER = [
-    "fed_rates", "real_yields", "dxy", "usd_strength", "inflation",
-    "geopolitical_risk", "employment_growth", "central_bank_demand",
+    "fed_rates", "real_yields", "dxy", "inflation",
+    "geopolitical_risk", "risk_sentiment", "employment_growth", "central_bank_demand",
 ]
 BIAS_EMOJI = {
     "VERY BULLISH": "🟢", "BULLISH": "🟢", "NEUTRAL": "⚪",
@@ -70,6 +69,23 @@ def build_gold_report(analysis: dict) -> str:
     for name in analysis["unavailable_factors"]:
         lines.append(f"  - {name}")
     lines.append("")
+
+    # --- Momentum: informational only, NOT part of the fundamentals score above ---
+    momentum = analysis.get("momentum", {})
+    gold_m = momentum.get("gold", {})
+    oil_m = momentum.get("oil", {})
+    if gold_m.get("available") or oil_m.get("available"):
+        lines.append("MARKET MOMENTUM (price action — not part of the fundamentals score)")
+        if gold_m.get("available"):
+            lines.append(
+                f"  Gold: {gold_m['latest']:.2f}  1D {gold_m['day_change_pct']:+.2f}%  "
+                f"{gold_m['range_days']}D {gold_m['range_change_pct']:+.2f}%"
+            )
+        if oil_m.get("available"):
+            lines.append(
+                f"  WTI Oil (context only): {oil_m['latest']:.2f}  1D {oil_m['day_change_pct']:+.2f}%"
+            )
+        lines.append("")
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines.append(f"Last updated: {now}")
