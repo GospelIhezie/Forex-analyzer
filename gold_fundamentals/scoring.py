@@ -1,4 +1,3 @@
-
 """
 gold_fundamentals/scoring.py
 
@@ -132,21 +131,16 @@ def score_employment_growth(events: list[dict]) -> dict:
 
 def score_usd_strength(usd_currency_score) -> dict:
     """
-    Reuses the existing per-currency USD fundamental score already computed
-    by the main Forex analyser (analyzer.combine_scores) instead of
-    recomputing USD strength a second, independent way — avoids two
-    slightly-different "USD scores" disagreeing with each other. Stronger
-    USD -> bearish gold, so the sign is inverted here.
+    RETIRED — see config.GOLD_CATEGORY_WEIGHTS docstring. This used to
+    duplicate the same underlying dollar-strength signal that the DXY
+    factor now covers with an actual traded price, which meant USD's
+    influence on the total score was silently counted twice. Kept as a
+    no-op function (returns unavailable) rather than deleted outright, in
+    case anything still imports it — DXY is now the sole dollar-strength
+    input feeding the total score.
     """
-    if usd_currency_score is None:
-        return {"available": False, "raw_score": 0.0, "reason": "USD score not available"}
-
-    raw_score = max(-2.0, min(2.0, -usd_currency_score))
-    return {
-        "available": True,
-        "raw_score": round(raw_score, 2),
-        "reason": f"Inverse of the Forex analyser's USD score ({usd_currency_score:+.2f})",
-    }
+    return {"available": False, "raw_score": 0.0,
+            "reason": "Retired — see DXY factor (avoids double-counting USD strength)"}
 
 
 def score_geopolitical_risk(headlines: list[dict]) -> dict:
@@ -245,6 +239,72 @@ def score_dxy(dxy_series: list[dict]) -> dict:
         "raw_score": round(raw_score, 2),
         "reason": f"DXY {direction} {abs(pct_change):.2f}% to {latest['value']:.2f} "
                   f"({previous['date']} -> {latest['date']})",
+    }
+
+
+def score_risk_sentiment(vix_series: list[dict]) -> dict:
+    """
+    Uses the two most recent CBOE VIX daily closes. Rising VIX = rising
+    fear/risk-off sentiment, which typically drives safe-haven demand for
+    gold -> bullish. Falling VIX = risk-on -> bearish for gold. VIX moves
+    in much bigger relative swings than DXY, so thresholds are wider.
+    """
+    if len(vix_series) < 2:
+        return {"available": False, "raw_score": 0.0,
+                "reason": "VIX data unavailable (fetch failed)"}
+
+    latest = vix_series[-1]
+    previous = vix_series[-2]
+    if previous["value"] == 0:
+        return {"available": False, "raw_score": 0.0, "reason": "Invalid previous VIX value"}
+
+    pct_change = (latest["value"] - previous["value"]) / previous["value"] * 100
+
+    magnitude = _bucket_magnitude(abs(pct_change), small=3.0, medium=8.0, large=15.0)
+    if pct_change > 0:
+        raw_score = magnitude
+        direction = "rose"
+    elif pct_change < 0:
+        raw_score = -magnitude
+        direction = "fell"
+    else:
+        raw_score = 0.0
+        direction = "unchanged"
+
+    return {
+        "available": True,
+        "raw_score": round(raw_score, 2),
+        "reason": f"VIX {direction} {abs(pct_change):.1f}% to {latest['value']:.1f} "
+                  f"({previous['date']} -> {latest['date']})",
+    }
+
+
+def build_momentum_snapshot(gold_price_series: list[dict], oil_price_series: list[dict]) -> dict:
+    """
+    Informational only — NOT part of the weighted fundamentals score (per
+    the review's own point: price/technical data is a different kind of
+    information than fundamentals and shouldn't be blended in). Just
+    reports plain 1-day and available-range change for gold and oil so the
+    Telegram digest can show them as context.
+    """
+    def _describe(series: list[dict], label: str) -> dict:
+        if len(series) < 2:
+            return {"available": False, "label": label}
+        latest, previous, first = series[-1], series[-2], series[0]
+        day_change_pct = (latest["value"] - previous["value"]) / previous["value"] * 100 if previous["value"] else 0.0
+        range_change_pct = (latest["value"] - first["value"]) / first["value"] * 100 if first["value"] else 0.0
+        return {
+            "available": True,
+            "label": label,
+            "latest": latest["value"],
+            "day_change_pct": round(day_change_pct, 2),
+            "range_change_pct": round(range_change_pct, 2),
+            "range_days": len(series),
+        }
+
+    return {
+        "gold": _describe(gold_price_series, "XAU/USD (gold futures proxy)"),
+        "oil": _describe(oil_price_series, "WTI Crude (context only — not scored)"),
     }
 
 
