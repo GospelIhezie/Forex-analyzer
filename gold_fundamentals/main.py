@@ -1,11 +1,11 @@
-
 """
 gold_fundamentals/main.py — entry point for the XAU/USD digest.
 
-Reuses the SAME data-fetching functions as the main Forex analyser
-(scraper.py) and the SAME per-currency USD score (analyzer.py) — this file
-does not scrape anything new, and does not touch or affect the main Forex
-digest (main.py) in any way. Run independently:
+Reuses the SAME calendar/news fetchers as the main Forex analyser
+(scraper.py) — this file does not scrape anything new there. It also pulls
+its own market data (FRED real yields, and Yahoo Finance DXY/VIX/gold/oil)
+via market_data.py. Does not touch or affect the main Forex digest
+(main.py) in any way. Run independently:
 
     python -m gold_fundamentals.main
 """
@@ -13,10 +13,12 @@ digest (main.py) in any way. Run independently:
 import logging
 
 from scraper import get_calendar_events, get_news_headlines
-from analyzer import score_calendar_bias, score_news_sentiment, combine_scores
 from gold_fundamentals.analyzer import build_gold_analysis
 from gold_fundamentals.report import build_gold_report
-from gold_fundamentals.market_data import get_real_yield_series, get_dxy_series
+from gold_fundamentals.market_data import (
+    get_real_yield_series, get_dxy_series, get_vix_series,
+    get_gold_price_series, get_oil_price_series,
+)
 from telegram_bot import send_report  # generic Telegram sender, reused as-is
 
 logging.basicConfig(
@@ -35,20 +37,28 @@ def run_once():
     headlines = get_news_headlines()
     logger.info("Fetched %d headlines.", len(headlines))
 
-    # Reuse the main Forex analyser's USD score rather than computing USD
-    # strength a second, independent way.
-    calendar_scores = score_calendar_bias(events)
-    news_scores = score_news_sentiment(headlines)
-    combined = combine_scores(calendar_scores, news_scores)
-    usd_score = combined.get("USD", {}).get("score")
-
-    logger.info("Fetching real yield (FRED) and DXY (Yahoo Finance) series...")
+    logger.info("Fetching market data (FRED real yields, Yahoo DXY/VIX/gold/oil)...")
     real_yield_series = get_real_yield_series()
     dxy_series = get_dxy_series()
-    logger.info("Real yield points: %d | DXY points: %d", len(real_yield_series), len(dxy_series))
+    vix_series = get_vix_series()
+    gold_price_series = get_gold_price_series()
+    oil_price_series = get_oil_price_series()
+    logger.info(
+        "Real yield: %d pts | DXY: %d pts | VIX: %d pts | Gold: %d pts | Oil: %d pts",
+        len(real_yield_series), len(dxy_series), len(vix_series),
+        len(gold_price_series), len(oil_price_series),
+    )
 
     logger.info("Building gold fundamentals analysis...")
-    analysis = build_gold_analysis(events, headlines, usd_score, real_yield_series, dxy_series)
+    analysis = build_gold_analysis(
+        calendar_events=events,
+        headlines=headlines,
+        real_yield_series=real_yield_series,
+        dxy_series=dxy_series,
+        vix_series=vix_series,
+        gold_price_series=gold_price_series,
+        oil_price_series=oil_price_series,
+    )
 
     report = build_gold_report(analysis)
     logger.info("Gold report:\n%s", report)
