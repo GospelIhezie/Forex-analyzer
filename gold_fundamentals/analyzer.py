@@ -8,22 +8,33 @@ Combines the individual factor scores from scoring.py into:
   data this run (unavailable factors reduce confidence, they don't get a
   score of 0 silently averaged in)
 - conflict detection between factors pulling in opposite directions
+- a separate, UNSCORED momentum snapshot (gold/oil price action) — kept out
+  of the fundamentals total per the review that flagged price/technical
+  data as a different kind of information than fundamentals
+
+Note: there is no "usd_strength" factor here. An earlier version had one
+derived from the Forex analyser's calendar+news USD score, running
+alongside "dxy" (a live market price) — both measuring the same underlying
+dollar-strength signal, which double-counted USD's influence on the total.
+DXY, backed by an actual traded price, is now the sole dollar-strength
+input; see config.GOLD_CATEGORY_WEIGHTS for how its weight was adjusted.
 """
 
 from config import GOLD_CATEGORY_WEIGHTS, GOLD_UNAVAILABLE_FACTORS
 from gold_fundamentals.scoring import (
     score_fed_rates, score_inflation, score_employment_growth,
-    score_usd_strength, score_geopolitical_risk, score_central_bank_demand,
-    score_real_yields, score_dxy,
+    score_geopolitical_risk, score_central_bank_demand,
+    score_real_yields, score_dxy, score_risk_sentiment,
+    build_momentum_snapshot,
 )
 
 CATEGORY_LABELS = {
     "fed_rates": "Fed / Rates",
     "real_yields": "US Real Yields (10Y TIPS)",
     "dxy": "US Dollar Index (DXY)",
-    "usd_strength": "USD Strength",
     "inflation": "Inflation",
-    "geopolitical_risk": "Geopolitical & Risk Sentiment",
+    "geopolitical_risk": "Geopolitical Risk (news)",
+    "risk_sentiment": "Risk Sentiment (VIX)",
     "employment_growth": "Employment / Growth",
     "central_bank_demand": "Central Bank & Gold Demand (headline-only)",
 }
@@ -32,17 +43,19 @@ CATEGORY_LABELS = {
 def build_gold_analysis(
     calendar_events: list[dict],
     headlines: list[dict],
-    usd_currency_score,
     real_yield_series: list[dict] | None = None,
     dxy_series: list[dict] | None = None,
+    vix_series: list[dict] | None = None,
+    gold_price_series: list[dict] | None = None,
+    oil_price_series: list[dict] | None = None,
 ) -> dict:
     factor_results = {
         "fed_rates": score_fed_rates(calendar_events),
         "real_yields": score_real_yields(real_yield_series or []),
         "dxy": score_dxy(dxy_series or []),
-        "usd_strength": score_usd_strength(usd_currency_score),
         "inflation": score_inflation(calendar_events),
         "geopolitical_risk": score_geopolitical_risk(headlines),
+        "risk_sentiment": score_risk_sentiment(vix_series or []),
         "employment_growth": score_employment_growth(calendar_events),
         "central_bank_demand": score_central_bank_demand(headlines),
     }
@@ -88,6 +101,8 @@ def build_gold_analysis(
     bearish_factors = [c for c in categories.values() if c["available"] and c["raw_score"] < -0.3]
     conflict = bool(bullish_factors) and bool(bearish_factors)
 
+    momentum = build_momentum_snapshot(gold_price_series or [], oil_price_series or [])
+
     return {
         "total_score": total_score,
         "bias": bias,
@@ -98,5 +113,5 @@ def build_gold_analysis(
         "bearish_factors": bearish_factors,
         "conflict": conflict,
         "unavailable_factors": GOLD_UNAVAILABLE_FACTORS,
+        "momentum": momentum,
     }
-
