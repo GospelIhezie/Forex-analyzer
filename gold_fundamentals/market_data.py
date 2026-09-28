@@ -1,28 +1,37 @@
 """
 gold_fundamentals/market_data.py
 
-Fetches the two market-data series the gold analyser needs that the
-existing scraper.py doesn't provide:
+Fetches the market-data series the gold analyser needs that the existing
+scraper.py doesn't provide:
 
 - get_real_yield_series(): US 10-Year real yield (TIPS), from FRED —
-  requires a free API key (config.FRED_API_KEY). Get one at
-  https://fred.stlouisfed.org/docs/api/api_key.html
-- get_dxy_series(): US Dollar Index (DXY) daily closes, from Yahoo
-  Finance's public chart endpoint — no API key needed. Note this is an
-  unofficial, unauthenticated endpoint (not a published/supported Yahoo
-  API); it's free and widely used, but Yahoo could change or block it
-  without notice. If it starts failing, that's why.
+  requires a free API key (config.FRED_API_KEY).
+- get_dxy_series() / get_gold_price_series() / get_oil_price_series() /
+  get_vix_series(): daily closes from Yahoo Finance's public chart
+  endpoint — no API key needed. This is an unofficial, unauthenticated
+  endpoint (not a published/supported Yahoo API); free and widely used,
+  but Yahoo could change or block it without notice. If it starts
+  failing, that's why.
 
-Both functions fail soft: on any error (missing key, network issue,
-unexpected response shape) they log a warning and return an empty list,
+Every function fails soft: on any error (missing key, network issue,
+unexpected response shape) it logs a warning and returns an empty list,
 which the scoring functions in scoring.py treat as "unavailable" rather
 than crashing the whole run.
+
+Gold and oil prices are fetched for the MOMENTUM section of the report
+only — per the review that pointed this out, price/technical data is kept
+separate from the fundamentals score, not blended into it.
 """
 
 import logging
+from datetime import datetime, timezone
+
 import requests
 
-from config import FRED_API_KEY, FRED_REAL_YIELD_SERIES, YAHOO_DXY_URL
+from config import (
+    FRED_API_KEY, FRED_REAL_YIELD_SERIES,
+    YAHOO_DXY_URL, YAHOO_GOLD_URL, YAHOO_OIL_URL, YAHOO_VIX_URL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,19 +84,20 @@ def get_real_yield_series() -> list[dict]:
     return series
 
 
-def get_dxy_series() -> list[dict]:
+def _fetch_yahoo_series(url: str, range_: str = "10d") -> list[dict]:
     """
-    Returns the last ~5 daily closes of DXY as
-    [{"date": "2026-09-24", "value": 103.45}, ...] sorted oldest to newest.
+    Shared fetcher for Yahoo Finance's public chart JSON endpoint. Returns
+    [{"date": "2026-09-24", "value": 103.45}, ...] sorted oldest to newest,
+    or [] on any failure.
     """
-    params = {"interval": "1d", "range": "10d"}
+    params = {"interval": "1d", "range": range_}
 
     try:
-        resp = requests.get(YAHOO_DXY_URL, params=params, headers=HEADERS, timeout=15)
+        resp = requests.get(url, params=params, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        logger.error("Failed to fetch DXY series from Yahoo Finance: %s", e)
+        logger.error("Failed to fetch Yahoo Finance series from %s: %s", url, e)
         return []
 
     try:
@@ -95,10 +105,8 @@ def get_dxy_series() -> list[dict]:
         timestamps = result["timestamp"]
         closes = result["indicators"]["quote"][0]["close"]
     except (KeyError, IndexError, TypeError) as e:
-        logger.error("Unexpected DXY response shape: %s", e)
+        logger.error("Unexpected Yahoo Finance response shape from %s: %s", url, e)
         return []
-
-    from datetime import datetime, timezone
 
     series = []
     for ts, close in zip(timestamps, closes):
@@ -108,3 +116,32 @@ def get_dxy_series() -> list[dict]:
         series.append({"date": date_str, "value": round(float(close), 3)})
 
     return series
+
+
+def get_dxy_series() -> list[dict]:
+    """US Dollar Index (DXY) daily closes — used for the DXY scoring factor."""
+    return _fetch_yahoo_series(YAHOO_DXY_URL)
+
+
+def get_gold_price_series() -> list[dict]:
+    """
+    COMEX gold futures (GC=F) daily closes — used ONLY for the report's
+    separate, unscored Momentum section (1D/5D price change), never fed
+    into the fundamentals score itself.
+    """
+    return _fetch_yahoo_series(YAHOO_GOLD_URL, range_="15d")
+
+
+def get_oil_price_series() -> list[dict]:
+    """
+    WTI crude futures (CL=F) daily closes — shown as context in the
+    Momentum section only. Oil's relationship to gold (via inflation
+    expectations) is genuinely ambiguous enough that this project doesn't
+    attempt to score it as bullish/bearish; it's informational only.
+    """
+    return _fetch_yahoo_series(YAHOO_OIL_URL, range_="15d")
+
+
+def get_vix_series() -> list[dict]:
+    """CBOE Volatility Index (VIX) daily closes — used for risk-sentiment scoring."""
+    return _fetch_yahoo_series(YAHOO_VIX_URL)
